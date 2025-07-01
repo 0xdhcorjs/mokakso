@@ -6,7 +6,7 @@ contract ERC20 {
     string public symbol;
     uint8 public constant decimal = 18;
     uint256 public totalsupply;
-
+    address admin = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) private allowances;
 
@@ -15,6 +15,10 @@ contract ERC20 {
         symbol = _symbol;
     }
 
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin can call this function");
+        _;
+    }
     function decimals() public view returns (uint8) {
         return decimal;
     }
@@ -53,12 +57,12 @@ contract ERC20 {
         return allowances[_owner][_spender];
     }
 
-    function mint(address to, uint256 amount) public {
+    function mint(address to, uint256 amount) external onlyAdmin {
         balances[to] += amount;
         totalsupply += amount;
     }
 
-    function burn(address from, uint256 amount) public {
+    function burn(address from, uint256 amount) external onlyAdmin {
         require(balances[from] >= amount, "Insufficient balance to burn");
         balances[from] -= amount;
         totalsupply -= amount;
