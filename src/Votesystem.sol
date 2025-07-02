@@ -4,26 +4,22 @@ pragma solidity ^0.8.0;
 import "forge-std/console.sol";
 
 contract VoteSystem {
-    uint256 public starttime;
-    address[] public approvedVoters;
-    mapping(address => bool) public Voted;
-    bool public voteresult;
-    uint8 public count = 0;
-    uint8 public agree = 0;
-    uint8 public disagree = 0;
-    bool public isFinalized = false;
-
-    modifier onlyApproveVoter() {
-        bool found = false;
-        for (uint8 i = 0; i < approvedVoters.length; i++) {
-            if (msg.sender == approvedVoters[i]) {
-                found = true;
-                break;
-            }
-        }
-        require(found, "You are not an approved voter");
-        _;
+    struct Proposal {
+        uint256 id;
+        address to;
+        uint256 value;
+        bytes data;
+        uint256 agree;
+        uint256 disagree;
+        bool finalized;
+        bool result;
+        mapping(address => bool) voted;
     }
+
+    mapping(uint256 => Proposal) public proposals;
+    address[] public approvedVoters;
+    mapping(address => bool) public isApprovedVoter;
+    uint256 public starttime;
 
     constructor() {
         starttime = block.timestamp;
@@ -39,40 +35,72 @@ contract VoteSystem {
             0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f,
             0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
         ];
-    }
-
-    function vote(bool voters) public onlyApproveVoter returns (bool) {
-        require(block.timestamp < starttime + 5 minutes, "Voting period has ended");
-        require(!Voted[msg.sender], "Already voted");
-        Voted[msg.sender] = voters;
-        count++;
-        return true;
-    }
-
-    function finalVoteResult() public returns (bool) {
-        require(block.timestamp >= starttime + 5 minutes, "Voting period is still ongoing");
-        require(!isFinalized, "Vote has already been finalized");
 
         for (uint8 i = 0; i < approvedVoters.length; i++) {
-            if (Voted[approvedVoters[i]] == true) {
-                agree++;
-            } else {
-                disagree++;
-            }
+            isApprovedVoter[approvedVoters[i]] = true;
         }
-
-        voteresult = (agree > disagree);
-        isFinalized = true;
-        return voteresult;
     }
 
-    function viewVoteResult() public view returns (string memory) {
-        if (block.timestamp < starttime + 5 minutes) {
-            return "Voting is still pending";
-        } else if (!isFinalized) {
-            return "Voting ended. Awaiting finalization.";
+    function createProposal(
+        uint256 id,
+        address to,
+        uint256 value,
+        bytes calldata data
+    ) external {
+        require(proposals[id].to == address(0), "Proposal already exists");
+        Proposal storage p = proposals[id];
+        p.id = id;
+        p.to = to;
+        p.value = value;
+        p.data = data;
+    }
+
+    function voteWithSig(
+        uint256 id,
+        address to,
+        uint256 value,
+        bytes calldata data,
+        bool support,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        bytes32 hash = keccak256(abi.encodePacked(id, to, value, data));
+        address signer = ecrecover(hash, v, r, s);
+
+        require(signer != address(0), "Invalid signature");
+        require(isApprovedVoter[signer], "Not approved voter");
+        require(!proposals[id].voted[signer], "Already voted");
+
+        proposals[id].voted[signer] = true;
+
+        if (support) {
+            proposals[id].agree++;
         } else {
-            return voteresult ? "Voting accepted" : "Voting rejected";
+            proposals[id].disagree++;
+        }
+    }
+
+    function finalize(uint256 id) external {
+        Proposal storage p = proposals[id];
+        require(!p.finalized, "Already finalized");
+        require(block.timestamp >= starttime + 5 minutes, "Voting ongoing");
+
+        p.result = p.agree > p.disagree;
+        p.finalized = true;
+    }
+
+    function viewVoteResult(uint256 id) external view returns (string memory) {
+        Proposal storage p = proposals[id];
+
+        if (!p.finalized) {
+            if (block.timestamp < starttime + 5 minutes) {
+                return "Voting is still pending";
+            } else {
+                return "Voting ended. Awaiting finalization.";
+            }
+        } else {
+            return p.result ? "Voting accepted" : "Voting rejected";
         }
     }
 }
